@@ -54,7 +54,7 @@ defmodule NervesSSH.MixProject do
   defp dialyzer() do
     [
       flags: [:missing_return, :extra_return, :unmatched_returns, :error_handling, :underspecs],
-      plt_add_apps: [:lfe]
+      plt_add_apps: [:lfe, :erlexec]
     ]
   end
 
