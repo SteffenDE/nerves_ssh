@@ -37,7 +37,7 @@ defmodule NervesSSH.MixProject do
       {:ex_doc, "~> 0.22", only: :docs, runtime: false},
       {:ssh_subsystem_fwup, "~> 0.5"},
       {:nerves_runtime, "~> 0.11"},
-      {:erlexec, "~> 1.21.0", optional: true},
+      {:erlexec, "~> 2.0", optional: true},
       # lfe currently requires `compile: "make"` to build and this is
       # disallowed when pushing the package to hex.pm.  Work around this by
       # listing it as dev/test only.
