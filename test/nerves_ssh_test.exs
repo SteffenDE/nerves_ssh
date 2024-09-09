@@ -9,11 +9,11 @@ defmodule NervesSSHTest do
     end
 
   @username_login [
-    user: 'test_user',
-    password: 'password',
+    user: ~c"test_user",
+    password: ~c"password",
     user_dir: Path.absname("test/fixtures/good_user_dir")
   ]
-  @key_login [user: 'anything_but_root', user_dir: Path.absname("test/fixtures/good_user_dir")]
+  @key_login [user: ~c"anything_but_root", user_dir: Path.absname("test/fixtures/good_user_dir")]
   @base_ssh_port 4022
   @rsa_public_key String.trim(File.read!("test/fixtures/good_user_dir/id_rsa.pub"))
   @ed25519_public_key String.trim(File.read!("test/fixtures/good_user_dir/id_ed25519.pub"))
@@ -34,7 +34,7 @@ defmodule NervesSSHTest do
   defp ssh_run(cmd, options \\ @username_login) do
     ssh_options =
       [
-        ip: '127.0.0.1',
+        ip: ~c"127.0.0.1",
         port: ssh_port(),
         user_interaction: false,
         silently_accept_hosts: true,
@@ -77,7 +77,7 @@ defmodule NervesSSHTest do
     start_supervised!({NervesSSH, nerves_ssh_config()})
 
     # Test we can send SSH command
-    state = :sys.get_state({:via, Registry, {NervesSSH.Registry, NervesSSH}})
+    state = :sys.get_state(NervesSSH)
     assert {:ok, "2", 0} == ssh_run("1 + 1")
 
     # Simulate sshd failure. restart
@@ -85,7 +85,7 @@ defmodule NervesSSHTest do
     Process.sleep(800)
 
     # Test recovery
-    new_state = :sys.get_state({:via, Registry, {NervesSSH.Registry, NervesSSH}})
+    new_state = :sys.get_state(NervesSSH)
     assert state.sshd != new_state.sshd
 
     assert {:ok, "4", 0} == ssh_run("2 + 2")
@@ -108,7 +108,7 @@ defmodule NervesSSHTest do
 
     # Verify that the old server has started and that it won't accept
     # the test credentials.
-    assert {:error, 'Unable to connect using the available authentication methods'} ==
+    assert {:error, ~c"Unable to connect using the available authentication methods"} ==
              ssh_run(":started_again?")
 
     # Start the real server up. It should kill our old one.
@@ -144,7 +144,10 @@ defmodule NervesSSHTest do
 
     File.write!(download_path, "asdf")
 
-    {_output, 0} =
+    # SCP can sometimes return 1 even when it succeeds,
+    # so we'll just ignore the return here and rely on the file
+    # check below
+    _ =
       System.cmd("scp", [
         "-o",
         "UserKnownHostsFile /dev/null",
@@ -158,6 +161,7 @@ defmodule NervesSSHTest do
         "#{filename}"
       ])
 
+    assert File.exists?(filename)
     assert File.read!(filename) == "asdf"
   end
 
@@ -175,7 +179,10 @@ defmodule NervesSSHTest do
 
     File.write!(filename, "asdf")
 
-    {_output, 0} =
+    # SCP can sometimes return 1 even when it succeeds,
+    # so we'll just ignore the return here and rely on the file
+    # check below
+    _ =
       System.cmd("scp", [
         "-o",
         "UserKnownHostsFile /dev/null",
@@ -189,6 +196,7 @@ defmodule NervesSSHTest do
         "test_user@localhost:#{upload_path}"
       ])
 
+    assert File.exists?(upload_path)
     assert File.read!(upload_path) == "asdf"
   end
 
@@ -247,9 +255,9 @@ defmodule NervesSSHTest do
   @tag :has_good_sshd_exec
   test "adding user/password at runtime" do
     start_supervised!({NervesSSH, nerves_ssh_config()})
-    refute {:ok, "2", 0} == ssh_run("1 + 1", user: 'jon', password: 'wat')
+    refute {:ok, "2", 0} == ssh_run("1 + 1", user: ~c"jon", password: ~c"wat")
     NervesSSH.add_user("jon", "wat")
-    assert {:ok, "2", 0} == ssh_run("1 + 1", user: 'jon', password: 'wat')
+    assert {:ok, "2", 0} == ssh_run("1 + 1", user: ~c"jon", password: ~c"wat")
   end
 
   @tag :has_good_sshd_exec
@@ -278,15 +286,15 @@ defmodule NervesSSHTest do
 
     # try to login with other user that is only added later
     refute {:ok, "2", 0} ==
-             ssh_run("1 + 1", port: other_config.port, user: 'jon', password: 'wat')
+             ssh_run("1 + 1", port: other_config.port, user: ~c"jon", password: ~c"wat")
 
     # add new user to :daemon_b
     NervesSSH.add_user(:daemon_b, "jon", "wat")
 
     assert {:ok, "2", 0} ==
-             ssh_run("1 + 1", port: other_config.port, user: 'jon', password: 'wat')
+             ssh_run("1 + 1", port: other_config.port, user: ~c"jon", password: ~c"wat")
 
     # :daemon_a must be unaffected
-    refute {:ok, "2", 0} == ssh_run("1 + 1", user: 'jon', password: 'wat')
+    refute {:ok, "2", 0} == ssh_run("1 + 1", user: ~c"jon", password: ~c"wat")
   end
 end

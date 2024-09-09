@@ -1,19 +1,18 @@
 defmodule NervesSSH.ApplicationTest do
-  # as starting and stopping the application interferes with other tests using the
-  # NervesSSH.Registry, we must run these tests synchronously
+  # These tests modify the global application environment so they can't be run concurrently
   use ExUnit.Case, async: false
 
   @rsa_public_key String.trim(File.read!("test/fixtures/good_user_dir/id_rsa.pub"))
 
   defp ssh_run(cmd) do
     ssh_options = [
-      ip: '127.0.0.1',
+      ip: ~c"127.0.0.1",
       port: 2222,
       user_interaction: false,
       silently_accept_hosts: true,
       save_accepted_host: false,
-      user: 'test_user',
-      password: 'password',
+      user: ~c"test_user",
+      password: ~c"password",
       user_dir: Path.absname("test/fixtures/good_user_dir")
     ]
 

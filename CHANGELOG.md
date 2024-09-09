@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.0.0
+
+This release adds support for Elixir 1.17 and removes support for Elixir 1.12
+and earlier. It has no other functional differences with v0.4.3.
+
+## v0.4.3
+
+This release is almost entirely code cleanup and improved documentation.
+The only notable change is you now must use atoms or module names for the
+`:name` option with daemon processes.
+
+* Updated
+  * Remove registry and rely on GenServer name registration
+  * Excluded unused `:user_passwords` key when `:pwdfun` is used
+
+## v0.4.2
+
+* Fixed
+  * Fix all compiler warnings and deprecations with Elixir 1.15
+
+## v0.4.1
+
+* Fixed
+  * Default `SSHSubsystemFwup` config would overwrite any user defined config
+    preventing FWUP handling customization (thanks @ConnorRigby!)
+
 ## v0.4.0
 
 * New features

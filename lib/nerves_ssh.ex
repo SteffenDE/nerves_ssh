@@ -13,33 +13,30 @@ defmodule NervesSSH do
   # some time to recover.
   @cool_off_time 500
 
+  @default_name NervesSSH
+
   @dialyzer [{:no_opaque, handle_continue: 2}]
 
-  defmodule State do
-    @moduledoc false
-    @type t :: %__MODULE__{
-            opts: Options.t(),
-            sshd: pid(),
-            sshd_ref: reference()
-          }
-
-    defstruct opts: [], sshd: nil, sshd_ref: nil
-  end
-
-  defp via_name(name), do: {:via, Registry, {NervesSSH.Registry, name}}
+  @typedoc false
+  @type state :: %__MODULE__{
+          opts: Options.t(),
+          sshd: pid(),
+          sshd_ref: reference()
+        }
+  defstruct opts: [], sshd: nil, sshd_ref: nil
 
   @doc false
   @spec start_link(Options.t()) :: GenServer.on_start()
   def start_link(%Options{} = opts) do
-    GenServer.start_link(__MODULE__, opts, name: via_name(opts.name))
+    GenServer.start_link(__MODULE__, opts, name: opts.name)
   end
 
   @doc """
   Read the configuration options
   """
-  @spec configuration :: Options.t()
-  def configuration(name \\ NervesSSH) do
-    GenServer.call(via_name(name), :configuration)
+  @spec configuration(GenServer.name()) :: Options.t()
+  def configuration(name \\ @default_name) do
+    GenServer.call(name, :configuration)
   end
 
   @doc """
@@ -47,29 +44,40 @@ defmodule NervesSSH do
 
   See [ssh.daemon_info/1](http://erlang.org/doc/man/ssh.html#daemon_info-1).
   """
-  @spec info() :: {:ok, keyword()} | {:error, :bad_daemon_ref}
-  def info(name \\ NervesSSH) do
-    GenServer.call(via_name(name), :info)
+  @spec info(GenServer.name()) :: {:ok, keyword()} | {:error, :bad_daemon_ref}
+  def info(name \\ @default_name) do
+    GenServer.call(name, :info)
   end
 
   @doc """
   Add an SSH public key to the authorized keys
 
-  This will also attempt to save the key in `{USER_DIR}/authorized_keys`
+  This also persists the key to `{USER_DIR}/authorized_keys` so that it can be
+  used after restarting.
+
+  Call `configuration/0` to get the current list of authorized keys.
+
+  Example:
+
+  ```
+  iex> NervesSSH.add_authorized_key("ssh-ed25519 AAAAC3NzaC...")
+  ```
   """
-  @spec add_authorized_key(String.t()) :: :ok
-  def add_authorized_key(name \\ NervesSSH, key) when is_binary(key) do
-    GenServer.call(via_name(name), {:add_authorized_key, key})
+  @spec add_authorized_key(GenServer.name(), String.t()) :: :ok
+  def add_authorized_key(name \\ @default_name, key) when is_binary(key) do
+    GenServer.call(name, {:add_authorized_key, key})
   end
 
   @doc """
   Remove an SSH public key from the authorized keys
 
-  This will also attempt to remove the key in `{USER_DIR}/authorized_keys`
+  This looks for an exact match. Call `configuration/0` to get the list of
+  authorized keys to find those to remove. The `{USER_DIR}/authorized_keys`
+  will be updated to save the change.
   """
-  @spec remove_authorized_key(String.t()) :: :ok
-  def remove_authorized_key(name \\ NervesSSH, key) when is_binary(key) do
-    GenServer.call(via_name(name), {:remove_authorized_key, key})
+  @spec remove_authorized_key(GenServer.name(), String.t()) :: :ok
+  def remove_authorized_key(name \\ @default_name, key) when is_binary(key) do
+    GenServer.call(name, {:remove_authorized_key, key})
   end
 
   @doc """
@@ -78,29 +86,29 @@ defmodule NervesSSH do
   Setting password to `""` or `nil` will effectively be passwordless
   authentication for this user
   """
-  @spec add_user(String.t(), String.t() | nil) :: :ok
-  def add_user(name \\ NervesSSH, user, password) do
-    GenServer.call(via_name(name), {:add_user, [user, password]})
+  @spec add_user(GenServer.name(), String.t(), String.t() | nil) :: :ok
+  def add_user(name \\ @default_name, user, password) do
+    GenServer.call(name, {:add_user, [user, password]})
   end
 
   @doc """
   Remove a user credential from the SSH daemon
   """
-  @spec remove_user(String.t()) :: :ok
-  def remove_user(name \\ NervesSSH, user) do
-    GenServer.call(via_name(name), {:remove_user, [user]})
+  @spec remove_user(GenServer.name(), String.t()) :: :ok
+  def remove_user(name \\ @default_name, user) do
+    GenServer.call(name, {:remove_user, [user]})
   end
 
-  @impl true
+  @impl GenServer
   def init(opts) do
     # Make sure we can attempt SSH daemon cleanup if
     # NervesSSH application gets shutdown
     Process.flag(:trap_exit, true)
 
-    {:ok, %State{opts: opts}, {:continue, :start_daemon}}
+    {:ok, %__MODULE__{opts: opts}, {:continue, :start_daemon}}
   end
 
-  @impl true
+  @impl GenServer
   def handle_continue(:start_daemon, state) do
     state =
       update_in(state.opts, &Options.load_authorized_keys/1)
@@ -126,7 +134,7 @@ defmodule NervesSSH do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:configuration, _from, state) do
     {:reply, state.opts, state}
   end
@@ -150,9 +158,9 @@ defmodule NervesSSH do
     {:reply, :ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:DOWN, _ref, :process, _sshd, reason}, state) do
-    Logger.warn(
+    Logger.warning(
       "[NervesSSH] sshd #{inspect(state.sshd)} crashed: #{inspect(reason)}. Restarting after delay."
     )
 
@@ -161,7 +169,7 @@ defmodule NervesSSH do
     {:stop, {:ssh_crashed, reason}, state}
   end
 
-  @impl true
+  @impl GenServer
   def terminate(reason, state) do
     Logger.error("[NervesSSH] terminating with reason: #{inspect(reason)}")
 
@@ -177,7 +185,7 @@ defmodule NervesSSH do
         state
 
       error ->
-        Logger.warn("[NervesSSH] Failed to save authorized_keys file: #{inspect(error)}")
+        Logger.warning("[NervesSSH] Failed to save authorized_keys file: #{inspect(error)}")
         state
     end
   end

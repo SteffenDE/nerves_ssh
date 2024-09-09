@@ -1,14 +1,14 @@
 defmodule NervesSSH.MixProject do
   use Mix.Project
 
-  @version "0.4.0"
+  @version "1.0.0"
   @source_url "https://github.com/nerves-project/nerves_ssh"
 
   def project do
     [
       app: :nerves_ssh,
       version: @version,
-      elixir: "~> 1.10",
+      elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: description(),
@@ -33,7 +33,7 @@ defmodule NervesSSH.MixProject do
 
   defp deps do
     [
-      {:dialyxir, "~> 1.2.0", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4.0", only: :dev, runtime: false},
       {:ex_doc, "~> 0.22", only: :docs, runtime: false},
       {:ssh_subsystem_fwup, "~> 0.5"},
       {:nerves_runtime, "~> 0.11"},

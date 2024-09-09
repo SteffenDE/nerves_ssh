@@ -4,6 +4,7 @@ defmodule NervesSSH.Options do
 
   The following fields are available:
 
+  * `:name` - a name used to reference the NervesSSH-managed SSH daemon. Defaults to `NervesSSH`.
   * `:authorized_keys` - a list of SSH authorized key file string
   * `:port` - the TCP port to use for the SSH daemon. Defaults to `22`.
   * `:subsystems` - a list of [SSH subsystems specs](https://erlang.org/doc/man/ssh.html#type-subsystem_spec) to start. Defaults to SFTP and `ssh_subsystem_fwup`
@@ -13,7 +14,7 @@ defmodule NervesSSH.Options do
   * `:exec` - the language to use for commands sent over ssh (`:elixir`, `:erlang`, or `:disabled`). Defaults to `:elixir`.
   * `:iex_opts` - additional options to use when starting up IEx
   * `:user_passwords` - a list of username/password tuples (stored in the clear!)
-  * `:daemon_option_overrides` - additional options to pass to `:ssh.daemon/2`. These take precedence and are unchecked.
+  * `:daemon_option_overrides` - additional options to pass to `:ssh.daemon/2`. These take precedence and are unchecked. Be careful using this since it can break other options.
   """
 
   alias Nerves.Runtime.KV
@@ -27,7 +28,7 @@ defmodule NervesSSH.Options do
   @type language :: :elixir | :erlang | :lfe | :disabled
 
   @type t :: %__MODULE__{
-          name: any(),
+          name: GenServer.name(),
           authorized_keys: [String.t()],
           decoded_authorized_keys: [:public_key.public_key()],
           user_passwords: [{String.t(), String.t()}],
@@ -46,7 +47,7 @@ defmodule NervesSSH.Options do
             decoded_authorized_keys: [],
             user_passwords: [],
             port: 22,
-            subsystems: [:ssh_sftpd.subsystem_spec(cwd: '/')],
+            subsystems: [:ssh_sftpd.subsystem_spec(cwd: ~c"/")],
             system_dir: "/data/nerves_ssh",
             user_dir: "/data/nerves_ssh/default_user",
             shell: :elixir,
@@ -75,7 +76,7 @@ defmodule NervesSSH.Options do
   def with_defaults(opts \\ []) do
     opts
     |> new()
-    |> add_fwup_subsystem()
+    |> maybe_add_fwup_subsystem()
     |> sanitize()
   end
 
@@ -223,8 +224,13 @@ defmodule NervesSSH.Options do
     ]
   end
 
-  defp shell_opts(%{shell: :elixir, iex_opts: iex_opts}),
-    do: [{:shell, {Elixir.IEx, :start, [iex_opts]}}]
+  if Version.match?(System.version(), ">= 1.17.0") do
+    defp shell_opts(%{shell: :elixir, iex_opts: iex_opts}),
+      do: [{:shell, {:iex, :start, [iex_opts, {:elixir_utils, :noop, []}]}}]
+  else
+    defp shell_opts(%{shell: :elixir, iex_opts: iex_opts}),
+      do: [{:shell, {Elixir.IEx, :start, [iex_opts]}}]
+  end
 
   defp shell_opts(%{shell: :erlang}), do: []
   defp shell_opts(%{shell: :lfe}), do: [{:shell, {:lfe_shell, :start, []}}]
@@ -238,13 +244,7 @@ defmodule NervesSSH.Options do
   defp key_cb_opts(opts), do: [key_cb: {NervesSSH.Keys, name: opts.name}]
 
   defp user_passwords_opts(opts) do
-    passes =
-      for {user, password} <- opts.user_passwords do
-        {to_charlist(user), to_charlist(password)}
-      end
-
     [
-      user_passwords: passes,
       # https://www.erlang.org/doc/man/ssh.html#type-pwdfun_4
       pwdfun: fn user, password, peer_address, state ->
         NervesSSH.UserPasswords.check(opts.name, user, password, peer_address, state)
@@ -264,7 +264,7 @@ defmodule NervesSSH.Options do
       {:error, err} ->
         tmp = Path.join("/tmp/nerves_ssh", dir)
         _ = File.mkdir_p(tmp)
-        Logger.warn("[NervesSSH] File error #{inspect(err)} for #{dir} - Using #{tmp}")
+        Logger.warning("[NervesSSH] File error #{inspect(err)} for #{dir} - Using #{tmp}")
         to_charlist(tmp)
     end
   end
@@ -302,11 +302,20 @@ defmodule NervesSSH.Options do
 
   defp valid_subsystem?(_), do: false
 
-  defp add_fwup_subsystem(opts) do
-    devpath = KV.get("nerves_fw_devpath")
+  defp maybe_add_fwup_subsystem(opts) do
+    found =
+      Enum.find(opts.subsystems, fn
+        {~c"fwup", _} -> true
+        _ -> false
+      end)
 
-    new_subsystems = [SSHSubsystemFwup.subsystem_spec(devpath: devpath) | opts.subsystems]
-    %{opts | subsystems: new_subsystems}
+    if found do
+      opts
+    else
+      devpath = KV.get("nerves_fw_devpath")
+      new_subsystems = [SSHSubsystemFwup.subsystem_spec(devpath: devpath) | opts.subsystems]
+      %{opts | subsystems: new_subsystems}
+    end
   end
 
   # :public_key.ssh_decode/2 was deprecated in OTP 24 and will be removed in OTP 26.
@@ -405,7 +414,7 @@ defmodule NervesSSH.Options do
       :ok
     else
       err ->
-        Logger.warn("""
+        Logger.warning("""
         [NervesSSH] Failed to write generated SSH host key to #{path} - #{inspect(err)}
 
         The SSH daemon wil continue to run and use the generated key, but a new host key
